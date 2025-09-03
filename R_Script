@@ -1,1 +1,1297 @@
+# Load required packages
+library(dplyr)
+library(stringr)
+library(readr)
+library(lubridate)
+library(ggplot2)
+library(forcats)
+library(viridis)
+library(ggpubr)
+library(stringr)
+library(ggtext)
+library(cowplot)
+library(gridExtra)
+library(patchwork)
+library(tidyr)
+library(sjPlot)
+library(lme4)
 
+setwd("please_define_your_wd_here")
+
+
+cov<-read.csv("data_municipios_adj.csv",h=T,row.names=1,sep=";")
+# Convert rownames to a column called 'Municipality'
+cov$Municipality <- rownames(cov)
+
+# Move 'Municipality' to the first column (optional but common)
+cov <- cov[, c("Municipality", setdiff(names(cov), "Municipality"))]
+
+cac <- read.csv("hunting_Rudy_new.csv", h=T, sep=";")
+
+
+# 5️⃣ Conferir
+glimpse(cac)
+#df_complete <- merge(cac, cov, by = "ID", all.x = TRUE) # will give error, set correctly both dsets
+
+
+# 1: Standardize city names in both datasets
+
+hunting_standardized <- cac %>%
+  mutate(
+    standard_city = Cidade %>%
+      str_replace("-[A-Z]{2}$", "") %>%      # Remove suffix "-UF"
+      str_replace_all("_", " ") %>%         # Replace underscores
+      str_to_title() %>%                    # Title case
+      str_trim(),
+    state = UF,                             # Copy state code
+    Ano = year(dmy_hm(`Data.da.Apreensão`))  # use dmy_hm(), not dmy_hms()
+  )
+hunting_standardized$Cidade
+
+# 2: Standardize municipality names from IBGE dataset
+municipalities_standardized <- cov %>%
+  mutate(
+    standard_city = Municipality %>%
+      str_replace("-[A-Z]{2}$", "") %>%
+      str_replace_all("_", " ") %>%
+      str_to_title() %>%
+      str_trim()
+  )
+
+# 3: Merge based on standardized city and state
+hunting_merged <- hunting_standardized %>%
+  left_join(
+    municipalities_standardized %>%
+      select(standard_city, state, ID_IBGE) %>%
+      rename(ID_IBGE = ID_IBGE),  # Rename to clarify it's IBGE code
+    by = c("standard_city", "state")
+  )
+
+
+# Optional: Check unmatched cities
+unmatched <- hunting_merged %>% filter(is.na(ID_IBGE))
+
+##### Finalizar tabela
+df_complete <- merge(hunting_merged, municipalities_standardized, by = "ID_IBGE", all.x = TRUE) 
+
+# Generate final table
+
+write.csv(df_complete, file = "./planilha_completa.csv")
+
+#will give error, set correctly both dsets
+
+# View summary
+cat("✅ Merge complete.\n")
+cat("✔️  Total rows in hunting: ", nrow(hunting_merged), "\n")
+cat("⚠️  Unmatched rows: ", nrow(unmatched), "\n")
+
+# HIyear()# HISTOGRAMA JULHY OK
+
+data=df_complete
+head(data)
+cores<-inferno(6,alpha=0.5)
+cores=c(cores[1],cores[2],cores[3],cores[4],cores[6])
+x11()
+boxplot(log(data$Qtd)~data$Bioma,col=cores,las=2,xlab="Biomes",ylab="log(quantitiy)")
+
+# BARPLOT (FIGURE 2) JULHY OK
+
+names(data)
+head(data)
+cores_bioma <- c(
+  "Amazônia" = adjustcolor("#1b9e77", alpha.f = 0.4),
+  "Cerrado" = adjustcolor("#d95f02", alpha.f = 0.4),
+  "Caatinga" = adjustcolor("#7570b3", alpha.f = 0.4),
+  "Pampa" = adjustcolor("#e7298a", alpha.f = 0.4),
+  "Pantanal" = adjustcolor("#66a61e", alpha.f = 0.4),
+  "Mata Atlântica" = adjustcolor("#e6ab02", alpha.f = 0.4)
+)
+nomes_biomas_en <- c(
+  "Amazônia" = "Amazon",
+  "Cerrado" = "Cerrado",
+  "Caatinga" = "Caatinga",
+  "Pampa" = "Pampa",
+  "Pantanal" = "Pantanal",
+  "Mata Atlântica" = "Atlantic Forest"
+)
+
+
+#data$Biome <- as.factor(data$Biome)
+
+result <- data %>%
+  group_by(Biome,Ano) %>%
+  summarise(Total = sum(Qtd, na.rm = TRUE), .groups = 'drop')
+result<-as.data.frame(result)
+result
+
+g1 <- ggplot(result, aes(x = factor(Ano), y = log(Total), fill = Bioma)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = cores_bioma) +  # <- aqui estC! o conserto
+  labs(title = "",
+       x = "Year",
+       y = "Log(Quantity)",
+       fill = "Biome") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+g1
+
+
+
+plot_final<-ggarrange(g1,
+                      font.label = list(size = 5, color = "black", face = "bold", family = NULL),
+                      labels = c(""),
+                      ncol = 1, nrow = 1, common.legend = TRUE)
+plot_final
+fig<-grid.arrange(plot_final)
+#setwd("C:/AAA - Bogoni Arquivos/PublicaC'C5es/5. ConstruC-ndo/Artigo PRF/Data")
+ggsave(plot=fig,height=6,width=7,dpi=600, filename="./outputs/Figure2.pdf", useDingbats=FALSE)
+
+
+# DONUT PLOT (FIGURE 2, PARTE 2) - 
+nrow(df_complete)
+data
+glimpse(data)
+
+# Agora sim, faça o aggregate
+efetivo <- aggregate(PRF_ratio ~ Bioma, data = data, sum, na.rm = TRUE)
+efetivo
+sum(efetivo[,2:2])
+biome_data <- data.frame(
+  Biome = c("Amazon", "Atlantic Forest", "Caatinga", "Cerrado", "Pampa"),
+  PRF_ratio = c(1692, 5899, 2249, 2094, 190)
+)
+
+cores_bioma <- c(
+  "Amazonia" = adjustcolor("#1b9e77", alpha.f = 0.4),
+  "Cerrado" = adjustcolor("#d95f02", alpha.f = 0.4),
+  "Caatinga" = adjustcolor("#7570b3", alpha.f = 0.4),
+  "Pampa" = adjustcolor("#e7298a", alpha.f = 0.4),
+  "Pantanal" = adjustcolor("#66a61e", alpha.f = 0.4),
+  "Atlantic Forest" = adjustcolor("#e6ab02", alpha.f = 0.4)
+)
+
+
+# Calcular porcentagens e posição dos labels
+biome_data <- biome_data %>%
+  arrange(desc(Biome)) %>%
+  mutate(perc = PRF_ratio / sum(PRF_ratio) * 100,
+         label = paste0(Biome, "\n", round(perc, 1), "%"),
+         ymax = cumsum(PRF_ratio),
+         ymin = c(0, head(ymax, n = -1)))
+
+biome_data$Biome <- recode(biome_data$Biome,
+                           "Amazon" = "Amazonia",
+                           "Atlantic Forest" = "Atlantic Forest")  # 
+
+# agora o plot deve funcionar corretamente
+ggplot(biome_data, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = Biome)) +
+  geom_rect() +
+  coord_polar(theta = "y") +
+  xlim(c(2, 4)) +
+  theme_void() +
+  geom_text(aes(x = 3.5, y = (ymin + ymax) / 2, label = label), size = 4) +
+  scale_fill_manual(values = cores_bioma) +
+  theme(legend.position = "none") +
+  ggtitle("PRF agents per biome")
+
+ ## model Julhy
+model_global<-glmer(Qtd ~ log1p(HPD)+log1p(ratio_roads)+log1p(rivers)+log1p(Native_cover_2018)+(1|Biome),
+                    data = data, family = poisson)
+summary(model_global)
+
+pred_plot <- plot_model(model_global, type = "pred", show.legend = FALSE)
+re_plot <- plot_model(model_global, type = "re", show.legend = FALSE)
+g1<-pred_plot[[1]]
+g2<-pred_plot[[2]]
+g3<-pred_plot[[3]]
+g4<-pred_plot[[4]]
+g5<-re_plot;g5
+
+
+plot_final<-ggarrange(g1,g2,g3,g4,g5,
+                      font.label = list(size = 5, color = "black", face = "bold", family = NULL),
+                      labels = c(""),
+                      ncol = 5, nrow = 1, common.legend = FALSE)
+
+
+#### Descriptive Table - PaperPRF Hunting Seizures
+
+### We will use biomes due to sdandartization from original dataset
+data <- data %>%
+mutate(Espécie = case_when(
+  Espécie %in% c("Tolypeutes tricinctus / Tatu-bola", "Tolypeutes sp. / Tatu-bola") ~ "Tolypeutes tricintus / Tatu-bola",
+  TRUE ~ Espécie
+))
+
+# PASSO 1: Agrupar Pantanal com Cerrado
+data <- data %>%
+  mutate(Bioma_agrupado = case_when(
+    Biome == "Pantanal" ~ "Cerrado-Pantanal",
+    Biome == "Cerrado" ~ "Cerrado-Pantanal",
+    TRUE ~ Biome
+  ))
+
+# PASSO 1: Criar dataset com eventos únicos (314 eventos)
+eventos_unicos <- data %>%
+  distinct(ID, .keep_all = TRUE) %>%
+  select(ID, Data.da.Apreensão, Tipo.de.local, Em.trânsito, EntVolunt, Ação, Coletivo, 
+         Cidade, UF, Região, Bioma_agrupado, Defaunation, Latitude, Longitude, Código.municipio)
+
+# PASSO 2: Calcular totais por evento (agregando múltiplas espécies)
+eventos_agregados <- data %>%
+  group_by(ID) %>%
+  summarize(
+    # Informações básicas (pegamos do primeiro registro de cada ID)
+    Data.da.Apreensão = first(Data.da.Apreensão),
+    Bioma_agrupado = first(Bioma_agrupado),
+    Cidade = first(Cidade),
+    UF = first(UF),
+    
+    # Métricas agregadas
+    total_individuos = sum(Qtd, na.rm = TRUE),
+    total_biomassa = sum(Qtd * Species.family._weigth, na.rm = TRUE),
+    n_especies = n_distinct(Espécie[Espécie != "NULL"]),
+    n_familias = n_distinct(Família[Família != "NULL"]),
+    
+    # Informações adicionais úteis
+    Morto = first(Morto),
+    ErroPreenchimento = first(ErroPreenchimento)
+  ) %>%
+  ungroup()
+
+# PASSO 3: Juntar com informações dos eventos únicos
+dados_eventos <- eventos_agregados %>%
+  left_join(eventos_unicos %>% select(-Data.da.Apreensão, -Bioma_agrupado, -Cidade, -UF), 
+            by = "ID")
+
+# AGORA USE 'dados_eventos' PARA SUAS ANÁLISES (314 eventos)
+### Suas análises adaptadas para eventos únicos:
+
+# 1. Eventos por bioma (agora com 314 eventos)
+Biome_314 <- dados_eventos %>%
+  group_by(Bioma_agrupado) %>%
+  summarize(n = n()) %>%
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+# 2. Número de indivíduos por bioma (baseado em eventos)
+Biome_qtd_avg_314 <- dados_eventos %>%   
+  group_by(Bioma_agrupado) %>%   
+  summarize(
+    total_killed = sum(total_individuos, na.rm = TRUE),
+    mean_killed = mean(total_individuos, na.rm = TRUE),
+    sd_killed = sd(total_individuos, na.rm = TRUE),
+    n_events = n()
+  ) %>%   
+  mutate(
+    lbl = paste0(round(mean_killed, 1), " ± ", round(sd_killed, 1))
+  )
+
+# 3. Biomassa por bioma (baseado em eventos)
+Biome_biomass_314 <- dados_eventos %>%
+  group_by(Bioma_agrupado) %>%
+  summarize(
+    total_biomass = sum(total_biomassa, na.rm = TRUE),
+    mean_biomass = mean(total_biomassa, na.rm = TRUE),
+    sd_biomass = sd(total_biomassa, na.rm = TRUE),
+    n_events = n()
+  ) %>%
+  mutate(
+    lbl = paste0(round(mean_biomass, 1), " ± ", round(sd_biomass, 1))
+  )
+
+# 4. Estatísticas gerais
+Resumo_geral <- dados_eventos %>% 
+  summarize(
+    total_killed = sum(total_individuos, na.rm = TRUE),
+    mean_killed = mean(total_individuos, na.rm = TRUE),
+    sd_killed = sd(total_individuos, na.rm = TRUE),
+    n_events = n(),
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    lbl = paste0(round(mean_killed, 1), " ± ", round(sd_killed, 1))
+  )
+
+
+# 4. Estatísticas gerais 2
+Resumo_geral_biomass <- dados_eventos %>% 
+  summarize(
+    total_biomass_comp = sum(total_biomassa, na.rm = TRUE),
+    mean_biomass_comp= mean(total_biomassa, na.rm = TRUE),
+    sd_biomass_comp= sd(total_biomassa, na.rm = TRUE),
+    n_events = n(),
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    lbl = paste0(round(mean_biomass_comp, 1), " ± ", round(sd_biomass_comp, 1))
+  )
+# 5. Para análises de espécies (mantém o dataset original mas com flag de evento único)
+# Adicionar coluna indicando se é evento único
+data_com_flag <- data %>%
+  group_by(ID) %>%
+  mutate(evento_unico = cur_group_id() %in% 1:nrow(dados_eventos)) %>%
+  ungroup()
+
+############################################################
+
+###### Dado não agrupados
+
+biomes <- data %>%
+  group_by(Biome) %>%
+  summarize(n=n()) %>%
+  arrange(desc(n))  %>%
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct),
+         acumulado = cumsum(n))
+
+
+#biomas <- data %>%
+ # group_by(Bioma) %>%
+#  summarize(n=n()) %>%
+#  arrange(desc(n))  %>%
+#  mutate(pct = n/sum(n),
+#         lbl = scales::percent(pct),
+#         acumulado = cumsum(n))
+
+
+family <- data %>%
+  group_by(Família, Biome, Espécie) %>%
+  summarize(n=n()) %>%
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+### Events per biome
+Biome <- data %>%
+  group_by(Biome) %>%
+  summarize(n=n()) %>%
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+# Filtrar e padronizar espécies
+species_biome <- data %>%
+  filter(!is.na(Espécie), Espécie != "NULL") %>%
+  select(Espécie, Biome) %>%
+  distinct() 
+
+#### Evaluating number of individuals killed per biome, mean, sd, total
+Biome_qtd_avg <- data %>%   
+  group_by(Biome) %>%   
+  summarize(
+    total_killed = sum(Qtd, na.rm = TRUE),  # Total de indivíduos mortos
+    mean_killed  = mean(Qtd, na.rm = TRUE), # Média
+    sd_killed    = sd(Qtd, na.rm = TRUE),   # Desvio padrão
+    n_events     = n()                      # Número de registros
+  ) %>%   
+  mutate(
+    lbl = paste0(
+      round(mean_killed, 1), 
+      " ± ",
+      round(sd_killed, 1)
+    )
+  )
+
+### Total average among all biomes
+
+Resumo_geral <- data %>% 
+  summarize(
+    total_killed = sum(Qtd, na.rm = TRUE),
+    mean_killed  = mean(Qtd, na.rm = TRUE),
+    sd_killed    = sd(Qtd, na.rm = TRUE),
+    n_events     = 392,  # valor fixo informado
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    lbl = paste0(
+      round(mean_killed, 1),
+      " ± ",
+      round(sd_killed, 1)
+    )
+  )
+
+## Biomass - done
+
+Biome_biomass <- data %>%
+  mutate(biomass = Qtd * Species.family._weigth) %>%  # Calcular biomassa de cada registro
+  group_by(Biome) %>%
+  summarize(
+    total_biomass = sum(biomass, na.rm = TRUE),        # Biomassa total por bioma
+    mean_biomass  = mean(biomass, na.rm = TRUE),       # Média da biomassa
+    sd_biomass    = sd(biomass, na.rm = TRUE),         # Desvio padrão da biomassa
+    n_events      = n()
+  ) %>%
+  mutate(
+    lbl = paste0(round(mean_biomass, 1), " ± ", round(sd_biomass, 1))
+  )
+
+Biome_biomass
+
+# Versão adaptada para eventos únicos (314 eventos) com biomas agrupados
+overall_biomass <- dados_eventos %>%
+  summarize(
+    total_biomass = sum(total_biomassa, na.rm = TRUE),
+    mean_biomass  = mean(total_biomassa, na.rm = TRUE),  # Média por EVENTO
+    sd_biomass    = sd(total_biomassa, na.rm = TRUE),    # DP por EVENTO
+    n_events      = n()
+  ) %>%
+  mutate(
+    se = sd_biomass / sqrt(n_events),                    # erro padrão
+    t_crit = qt(0.975, df = n_events - 1),               # t crítico para 95% IC
+    ci_lower = mean_biomass - t_crit * se,
+    ci_upper = mean_biomass + t_crit * se,
+    lbl = paste0(
+      round(mean_biomass, 1), " ± ", round(sd_biomass, 1), " kg ",
+      "(95% CI: ", round(ci_lower, 2), " – ", round(ci_upper, 2), " kg)"
+    )
+  )
+
+# Visualizar resultado
+print(overall_biomass)
+
+overall_biomass
+
+#######################
+
+# Calcular biomassa por grupo taxonômico e bioma
+group_biomass <- data %>%
+  mutate(biomass = Qtd * Species.family._weigth) %>%  # Calcula biomassa de cada registro
+  group_by(Grupo, Biome) %>%                        # Agrupa por grupo taxonômico e bioma
+  summarize(
+    total_biomass = sum(biomass, na.rm = TRUE),       # Biomassa total por grupo e bioma
+    mean_biomass  = mean(biomass, na.rm = TRUE),      # Média da biomassa por registro
+    sd_biomass    = sd(biomass, na.rm = TRUE),        # Desvio padrão da biomassa
+    n_events      = n()
+  ) %>%
+  ungroup()
+
+group_biomass
+
+### Species per biome - There are NAs!
+glimpse(data)
+
+species_per_biome <- data %>%
+  filter(!is.na(Espécie), Espécie != "NULL") %>%  # remove valores ausentes ou "NULL"
+  group_by(Biome) %>%
+  summarise(
+    n_species = n_distinct(Espécie)
+  ) %>%
+  arrange(desc(n_species))
+
+null_count <- sum(data$Espécie == "NULL", na.rm = TRUE)
+
+total <- nrow(data)
+percent_null <- (null_count / total) * 100
+
+cat("Total de 'NULL':", null_count, "\n")
+cat("Porcentagem de 'NULL':", round(percent_null, 2), "%\n")
+
+print(species_per_biome)
+sum(species_per_biome$n_species)
+
+#### IDs independentes
+
+### Taxa per biome -
+glimpse(data)
+
+id_per_biome <- data %>%
+  filter(!is.na(ID), ID != "NULL") %>%
+  group_by(Biome) %>%
+  summarise(
+    n_id = n_distinct(ID)
+  ) %>%
+  arrange(desc(n_id))
+
+# Filtrar dados válidos para taxon (sem NA ou "NULL" nas espécies)
+taxa_biome_single <- data %>%
+  filter(!is.na(Família), Família != "NULL") %>%
+  select(Família, Biome) %>%
+  distinct()
+
+print(taxa_biome_single)
+
+# Total de taxon únicos (sem repetições)
+total_unique_taxa <- taxa_biome_single %>%
+  distinct(Família, Biome) %>%
+  arrange(Biome)
+
+# Taxons presentes em mais de um bioma
+duplicated_taxa <- taxa_biome_single %>%
+  group_by(Família) %>%
+  summarise(n_biomes = n_distinct(Biome)) %>%
+  filter(n_biomes > 1)
+
+#######################
+
+### Taxa per biome -
+glimpse(data)
+
+taxa_per_biome <- data %>%
+  filter(!is.na(Família), Família != "NULL") %>%
+  group_by(Biome) %>%
+  summarise(
+    n_taxa = n_distinct(Família)
+  ) %>%
+  arrange(desc(n_taxa))
+
+# Filtrar dados válidos para taxon (sem NA ou "NULL" nas espécies)
+taxa_biome_single <- data %>%
+  filter(!is.na(Família), Família != "NULL") %>%
+  select(Família, Biome) %>%
+  distinct()
+
+print(taxa_biome_single)
+
+# Total de taxon únicos (sem repetições)
+total_unique_taxa <- taxa_biome_single %>%
+  distinct(Família, Biome) %>%
+  arrange(Biome)
+
+# Taxons presentes em mais de um bioma
+duplicated_taxa <- taxa_biome_single %>%
+  group_by(Família) %>%
+  summarise(n_biomes = n_distinct(Biome)) %>%
+  filter(n_biomes > 1)
+
+##### Listar espécies repetidas por biomas (pedido Hani 05/08)
+
+
+
+# Filtrar e padronizar espécies
+species_biome <- data %>%
+  filter(!is.na(Espécie), Espécie != "NULL") %>%
+  select(Espécie, Biome, Família, Grupo) %>%
+  distinct() 
+
+# Filtrar dados válidos (sem NA ou "NULL" nas espécies)
+species_biome_single <- data %>%
+  filter(!is.na(Espécie), Espécie != "NULL") %>%
+  select(Espécie, Biome,Grupo) %>%
+  distinct()
+
+# Total de espécies únicas (sem repetições)
+total_unique_species <- species_biome %>%
+  distinct(Espécie, Biome, Família,Grupo) %>%
+  arrange(Espécie, Biome, Família, Grupo) 
+View(total_unique_species)
+
+# Espécies presentes em mais de um bioma
+duplicated_species <- species_biome %>%
+  group_by(Espécie) %>%
+  summarise(n_biomes = n_distinct(Biome)) %>%
+  filter(n_biomes > 1)
+
+cat("Espécies em mais de um bioma:", nrow(duplicated_species), "\n")
+
+
+# Filtrar apenas espécies com ocorrência em dois ou mais biomas
+species_multiple_biomes <- species_biome %>%
+  group_by(Espécie) %>%
+  filter(n_distinct(Biome) >= 2) %>%
+  ungroup() %>%
+  distinct() %>%
+  mutate(Espécie_formatada = paste0("<i>", Espécie, "</i>"))
+View(species_multiple_biomes)
+cat("Total de Espécies em mais de um bioma:", nrow(species_multiple_biomes), "\n")
+
+# Gráfico com viridis e nomes em itálico
+suplementalgraph1 <- ggplot(species_multiple_biomes, aes(x = Biome, y = fct_infreq(Espécie_formatada))) +
+  geom_tile(aes(fill = Biome), color = "white", linewidth = 0.4) +
+  scale_fill_viridis_d(option = "D", direction = -1) +
+  labs(
+    title = "Species seized in two or more biomes",
+    x = "Biomes",
+    y = "Scientific and common names"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = ggtext::element_markdown(size = 7),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+print(suplementalgraph1)
+
+
+ggsave(file="./outputs/supgrap1.jpeg",
+       plot=suplementalgraph1,width=12,height=8,dpi=600)
+ggsave(file="./outputs/supgrap1.png",
+       plot=suplementalgraph1,width=12,height=8,dpi=600)
+ggsave(file="./outputs/supgrap1.pdf",
+       plot=suplementalgraph1,width=12,height=8,dpi=600)
+
+
+### Grupo (mammal, reptiles etc)
+
+# Conta o número de espécies únicas por grupo e bioma
+species_by_group_biome <- data %>%
+  filter(Espécie != "NULL") %>%  # Exclui espécies não identificadas
+  group_by(Grupo, Biome, Espécie) %>%
+  summarize(.groups = "drop") %>%  # Garante contagem por espécie única
+  count(Grupo, Biome, name = "n_species") %>%
+  pivot_wider(names_from = Biome, values_from = n_species, values_fill = 0) %>%
+  mutate(Total = rowSums(across(where(is.numeric))))
+
+
+##################### Espécies ameaçadas ###########################
+
+# Lista de categorias ameaçadas da IUCN
+threatened_categories <- c("VU", "EN", "CR")
+non_threatened_categories <- c("LC","VU", "EN", "CR")
+
+data$Espécie
+
+species_threat_by_group_biome <- data %>%
+  filter(Espécie != "NULL", IUCN %in% threatened_categories) %>%
+   distinct(Biome, Espécie) %>%  # Remove duplicatas
+  count(Biome, name = "n_threatened_species") %>%
+  pivot_wider(
+    names_from = Biome,
+    values_from = n_threatened_species,
+    values_fill = 0
+  ) %>%
+  mutate(Total = rowSums(across(where(is.numeric))))
+
+species_threat_by_group_biome
+
+######################### ALL SPECIES
+
+
+##################### Espécies ameaçadas ########################### exclusivas por bioma e sem repetição
+
+# 2. Filtra espécies ameaçadas válidas (sem duplicação por bioma)
+threatened_species_per_biome <- data %>%
+  filter(
+    !is.na(Espécie),
+    Espécie != "NULL",
+    IUCN %in% threatened_categories
+  ) %>%
+  distinct(Grupo, Espécie, Biome)
+
+# In this code it lacks a "tatu-bola" from the Amazon biome, so, add it to your data and see previous objects to find properly where the species is
+
+# 3. Conta o número de biomas distintos em que cada espécie ameaçada ocorre
+threatened_species_multi_biomes <- threatened_species_per_biome %>%
+  group_by(Grupo, Espécie) %>%
+  summarise(
+    n_biomas = n_distinct(Biome),
+    Biomas = paste(sort(unique(Biome)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  mutate(tipo = ifelse(n_biomas == 1, "Exclusive", "Shared"))
+
+# 4. Contagem geral (quantas espécies ameaçadas são exclusivas ou compartilhadas)
+summary_threat_distribution <- threatened_species_multi_biomes %>%
+  count(Grupo, tipo) %>%
+  pivot_wider(names_from = tipo, values_from = n, values_fill = 0) %>%
+  mutate(Total = Exclusive + Shared)
+
+# 5. Exibir os resultados
+View(threatened_species_multi_biomes)       # Espécies ameaçadas + biomas
+View(summary_threat_distribution)           # Tabela resumo por grupo
+
+
+##############################################################################
+
+#### individuos por biome e porcentagem
+
+
+individuals_by_biome <- data %>%
+  filter(!is.na(Qtd)) %>%
+  group_by(Biome, Grupo) %>%
+  summarize(
+    total_individuals = sum(Qtd, na.rm = TRUE)
+  ) %>%
+  mutate(
+    pct = round(100 * total_individuals / sum(total_individuals), 1)
+  ) %>%
+  arrange(desc(total_individuals))
+
+sum(individuals_by_biome$total_individuals)
+sum()
+###############
+
+
+### Bodymass
+
+
+
+# Substitui os códigos abreviados por nomes completos
+data <- data %>%
+  mutate(Grupo = recode(Grupo,
+                        "av" = "Birds",
+                        "ma" = "Mammals",
+                        "re" = "Reptiles",
+                        "am" = "Amphibians"))
+
+# Top 20 espécies - with scientific
+# Top 20 espécies
+top_taxa <- data %>%
+  filter(Espécie != "NULL") %>%
+  group_by(Espécie, Grupo, Biome, Família) %>%
+  summarise(
+    n_individuals = sum(Qtd, na.rm = TRUE),
+    se_individuals = sd(Qtd, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  group_by(Espécie, Grupo, Família) %>%
+  summarise(
+    n_individuals = sum(n_individuals),
+    se_individuals = sqrt(sum(se_individuals^2))
+  ) %>%
+  ungroup() %>%
+  slice_max(n_individuals, n = 20) %>%  # Top 20
+  mutate(Espécie_md = paste0("*", Espécie, "*"),
+         Espécie_md = fct_reorder(Espécie_md, n_individuals, .desc = TRUE))
+
+View(top_taxa)
+
+# Recrie a coluna com nomes em itálico
+#top_taxa <- top_taxa %>%
+ # mutate(Espécie_md = paste0("*", Espécie, "*")) %>%
+  #mutate(Espécie_md = fct_reorder(Espécie_md, n_individuals))  # <- sem .desc
+#View(top_taxa)
+
+
+
+g1 <- ggplot(top_taxa, aes(x = log(n_individuals), y = Espécie_md, fill = Grupo)) +
+  geom_col() +
+  scale_y_discrete(limits= rev) +
+  scale_fill_viridis_d(
+    option = "D", direction = 1,
+    labels = c("av" = "Birds", "ma" = "Mammals", "re" = "Reptiles", "am" = "Amphibians")
+  ) +
+  labs(
+    x = "Number of individuals (log)",
+    y = "Taxon",
+    fill = "Class",
+    title = "(a) Most seized taxa in number of individuals"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = ggtext::element_markdown(),
+    legend.position = c(0.95, 0.05),
+    legend.justification = c("right", "bottom"),
+    legend.background = element_rect(fill = "white", color = "gray80"),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9)
+  )
+
+# Exibir
+g1
+
+# Eventos por família - Gráfico (b)
+order_events <- data %>%
+  filter(Família != "NULL") %>%
+  group_by(Família, Grupo) %>%
+  summarize(n_events = n(), .groups = "drop") %>%
+  filter(!is.na(Família)) %>%
+  mutate(Família = fct_reorder(Família, n_events))  # <- Ordem crescente
+View(order_events)
+
+# Gráfico (b)
+g2 <- ggplot(order_events, aes(x = n_events, y = Família, fill = Grupo)) +
+  geom_col() +
+  scale_fill_viridis_d(
+    option = "D", direction = 1,
+    labels = c("av" = "Birds", "ma" = "Mammals", "re" = "Reptiles", "am" = "Amphibians")
+  ) +
+  labs(
+    x = "Number of seizure events",
+    y = "Family",
+    fill = "Class",
+    title = "(b) Seizure PRF events by taxonomic family"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.95, 0.05),
+    legend.justification = c("right", "bottom"),
+    legend.background = element_rect(fill = "white", color = "gray80"),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9)
+  )
+g2
+
+# Painel final - sem legenda comum
+plot_final <- ggarrange(
+  g1, g2,
+  ncol = 2, nrow = 1,
+  labels = c("", "")
+)
+
+fig_new <-grid.arrange(plot_final)
+
+ggsave(plot=fig_new,height=14,width=12,dpi=300, filename="./outputs/Figure3_mario_hani_version.pdf", useDingbats=FALSE)
+figure <- ggarrange(g1, g2,
+                    ncol = 2, nrow = 1)
+ggsave(file="./outputs/hani_mario.png",
+       plot=figure,width=12,height=8,dpi=640)
+ggsave(file="./outputs/hani_mario.jpeg",
+       plot=figure,width=12,height=8,dpi=640)
+ggsave(file="./outputs/hani_mario.pdf",
+       plot=figure,width=12,height=8,dpi=600)
+# Exibir
+plot_final
+
+
+
+
+######################################## Geração das hipóteses
+
+# H1: A severidade da defaunação está positivamente associada ao número médio de indivíduos caçados por evento
+
+
+# Criar dados hipotéticos de correlação
+# Pacotes necessários
+
+
+# Reproduzir os dados e os gráficos
+set.seed(0900110388)
+n_points <- 100
+defaunation <- runif(n_points, 0.4, 0.8)
+biomes <- sample(c("Amazon", "Atlantic Forest", "Caatinga", "Cerrado", "Pampa", "Pantanal"), n_points, replace = TRUE)
+sizes <- runif(n_points, 1, 10)
+
+# Paleta de cores por bioma
+biome_colors <- c(
+  "Amazon" = "#440154FF",
+  "Atlantic Forest" = "#3D4D8AFF",
+  "Caatinga" = "#2B758EFF",
+  "Cerrado" = "#5CC863FF",
+  "Pampa" = "#FDE725FF",
+  "Pantanal" = "#DC2B46FF"
+)
+
+# Gráfico A
+h1 <- data.frame(
+  defaunation = defaunation,
+  individuals_hunted = 1 + 4 * defaunation^2 + rnorm(n_points, 0, 0.3),
+  biome = biomes,
+  size = sizes
+)
+plot_a <- ggplot(h1, aes(x = defaunation, y = individuals_hunted, color = biome, size = size)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "glm", method.args = list(family = "Gamma"), color = "gray", se = TRUE) +
+  scale_color_manual(values = biome_colors) +
+  guides(size = "none") +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    color = ""
+  ) +
+ theme_minimal() +
+  theme(legend.position = "none") 
+ggsave(file="./outputs/hip1.png",
+       plot=plot_a,width=12,height=8,dpi=320)
+# Gráfico B
+h2 <- data.frame(
+  defaunation = defaunation,
+  biomass = 30 * (1 - defaunation)^2 + rnorm(n_points, 0, 1),
+  biome = biomes,
+  size = sizes
+)
+plot_b <- ggplot(h2, aes(x = defaunation, y = biomass, color = biome, size = size)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2), color = "gray", se = TRUE) +
+  scale_color_manual(values = biome_colors) +
+  guides(size = "none") +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    color = ""
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") 
+ggsave(file="./outputs/hip2.png",
+       plot=plot_b,width=12,height=8,dpi=320)
+
+# Gráfico C
+h3 <- data.frame(
+  defaunation = defaunation,
+  mean_mass = 25 * (1 - defaunation)^1.5 + rnorm(n_points, 0, 2),
+  biome = biomes,
+  size = sizes
+)
+
+plot_c <- ggplot(h3, aes(x = defaunation, y = mean_mass, color = biome, size = size)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "glm", method.args = list(family = "Gamma"), color = "gray", se = TRUE) +
+  scale_color_manual(values = biome_colors) +
+  guides(size = "none") +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    color = ""
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+ggsave(file="./outputs/hip3.png",
+       plot=plot_c,width=12,height=8,dpi=320)
+# Gráfico D
+h4 <- data.frame(
+  defaunation = defaunation,
+  prop_birds = 0.3 + 0.5 * defaunation + rnorm(n_points, 0, 0.05),
+  biome = biomes,
+  size = sizes
+)
+plot_d <- ggplot(h4, aes(x = defaunation, y = prop_birds, color = biome, size = size)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"), color = "gray", se = TRUE) +
+  scale_color_manual(values = biome_colors) +
+  guides(size = "none") +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    color = ""
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") 
+ggsave(file="./outputs/hip4.png",
+       plot=plot_d,width=12,height=8,dpi=320)
+
+# Gráfico E
+panel_e <- data.frame(
+  defaunation = defaunation,
+  reptile_mass = 80 - 40 * defaunation + rnorm(n_points, 0, 5),
+  biome = biomes,
+  size = sizes
+)
+plot_e <- ggplot(panel_e, aes(x = defaunation, y = reptile_mass, color = biome, size = size)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", color = "gray", se = TRUE) +
+  scale_color_manual(values = biome_colors) +
+  guides(size = "none") +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    color = ""
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") 
+ggsave(file="./outputs/hip5.png",
+       plot=plot_e,width=12,height=8,dpi=320)
+
+
+# Gráfico F
+panel_f <- data.frame(
+  defaunation = defaunation,
+  prop_mammals = 0.7 - 0.4 * defaunation + rnorm(n_points, 0, 0.05),
+  biome = biomes,
+  size = sizes
+)
+plot_f <- ggplot(panel_f, aes(x = defaunation, y = prop_mammals, color = biome, size = size)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"), color = "gray", se = TRUE) +
+  scale_color_manual(values = biome_colors) +
+  guides(size = "none") +
+  labs(
+    x = "",
+    y = "",
+    title = "",
+    color = ""
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") 
+ggsave(file="./outputs/hip6.png",
+       plot=plot_f,width=12,height=8,dpi=320)
+
+
+# Agrupar e salvar a figura
+grid.arrange(plot_a, plot_b, plot_c, plot_d, plot_e, plot_f, ncol = 2)
+
+png("painel_defaunation_hypothesis.png", width = 14, height = 10, units = "in", res = 300)
+grid.arrange(plot_a, plot_b, plot_c, plot_d, plot_e, plot_f, ncol = 2)
+dev.off()
+
+################################################################################
+sum(Biome_qtd)
+
+subtable <- cbind(cities, Biome, family)
+
+Biome <- data %>%
+  group_by(Bioma, ) %>%
+  summarize(n=n()) %>%
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+glimpse(data)
+biomes <- data %>%
+  group_by(Bioma, Espécie, Família, IUCN,Species.family._weigth) %>%
+  summarize(n=n()) %>%
+  arrange(desc(n))  %>%
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct),
+         acumulado = cumsum(n))
+
+# Agrupar por Bioma e grupo taxonômico
+biomass_by_biome <- data %>%
+  group_by(Bioma, Species.family._weigth) %>%
+  summarize(n = n(), .groups = "drop") %>%
+  group_by(Bioma) %>%
+  mutate(
+    pct = n / sum(n),
+    lbl = scales::percent(pct)
+  )
+
+# Ordenar fatores para o gráfico
+biomass_by_biome$Bioma <- factor(biomass_by_biome$Bioma,
+                                 levels = c("Amazônia", "Mata Atlântica", "Caatinga",
+                                            "Cerrado", "Pantanal", "Pampa"),
+                                 labels = c("Amazon", "Atlantic Forest", "Caatinga",
+                                            "Cerrado", "Pantanal", "Pampa"))
+
+# Gráfico
+ggplot(biomass_by_biome, aes(x = Bioma, y = pct, fill = Species.family._weigth)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = lbl),
+            position = position_stack(vjust = 0.5),
+            size = 3.5) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Relative frequency of biomass records by group and biome",
+    x = "Brazilian Biomes", y = "Percentage of events",
+    fill = "Species group"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggsave(file=paste0("./outputs/PRFops.pdf"),
+       plot=graff6,width=12,height=10,dpi="print") 
+
+#############################################################################################
+
+# Etapa de dados
+g_a_data <- data %>%
+  filter(!is.na(Bioma)) %>%
+  group_by(Bioma) %>%
+  summarise(
+    n_events = n(),
+    se_events = sqrt(n())  # Aproximação Poisson
+  ) %>%
+  mutate(
+    Biome = recode(Bioma,
+                   "Amazônia" = "Amazonia",
+                   "Caatinga" = "Caatinga",
+                   "Cerrado" = "Cerrado",
+                   "Mata Atlântica" = "Atlantic Forest",
+                   "Pantanal" = "Pantanal",
+                   "Pampa" = "Pampa"),
+    Biome = factor(Biome, levels = biome_levels)
+  )
+
+
+# ----- GRÁFICO (b): Número de indivíduos por grupo e bioma -----
+
+# Definir níveis dos biomas e grupos
+biome_levels <- c("Amazonia", "Caatinga", "Cerrado", "Atlantic Forest", "Pampa", "Pantanal")
+group_levels <- c("Birds", "Mammals", "Reptiles")
+
+# ----- Pré-processamento: remover NAs de Grupo -----
+data_clean <- data %>%
+  filter(!is.na(Grupo), Grupo != "NA") %>%
+  mutate(
+    Grupo = factor(Grupo, levels = group_levels),
+    Biome = recode(Bioma,
+                   "Amazônia" = "Amazonia",
+                   "Caatinga" = "Caatinga",
+                   "Cerrado" = "Cerrado",
+                   "Mata Atlântica" = "Atlantic Forest",
+                   "Pantanal" = "Pantanal",
+                   "Pampa" = "Pampa"),
+    Biome = factor(Biome, levels = biome_levels)
+  )
+
+# ----- GRÁFICO (b): Número de indivíduos por grupo e bioma -----
+g_b_data <- data %>%
+  group_by(Biome, Grupo) %>%
+  summarise(
+    n_individuals = sum(Qtd, na.rm = TRUE),
+    se_individuals = sd(Qtd, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  filter(!is.na(Grupo))  # This line removes NA groups
+
+# Versão com Caatinga em escala log
+g_b_data_scaled <- g_b_data %>%
+  mutate(
+    n_individuals_adj = ifelse(Biome == "Caatinga", log(n_individuals), n_individuals),
+    se_individuals_adj = ifelse(Biome == "Caatinga", se_individuals / n_individuals * log(n_individuals), se_individuals)
+  )
+
+g_b_scaled <- ggplot(g_b_data_scaled, aes(x = n_individuals_adj, y = Biome, fill = Grupo)) +
+  geom_col(position = "stack") +
+  geom_errorbar(
+    aes(xmin = n_individuals_adj - se_individuals_adj, xmax = n_individuals_adj + se_individuals_adj),
+    position = position_stack(vjust = 0.5), width = 0.2
+  ) +
+  scale_fill_viridis_d(option = "viridis", direction = -1) +
+  labs(
+    x = "Number of individuals (Caatinga rescaled in log)",
+    y = NULL,
+    fill = "Group",
+    title = "(b) Individuals by group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = c(0.75, 0.4),
+    legend.background = element_rect(fill = "white", color = "gray80")
+  )
+
+g_b_scaled
+
+
+### 3. Biomassa média por evento por bioma (Figura c)
+
+g_c_data <- data_clean %>%
+  filter(!is.na(Species.family._weigth)) %>%
+  group_by(Biome, Grupo) %>%
+  summarise(
+    mean_biomass = mean(Species.family._weigth * Qtd, na.rm = TRUE),
+    se_biomass = sd(Species.family._weigth * Qtd, na.rm = TRUE) / sqrt(n())
+  )
+
+g_c <- ggplot(g_c_data, aes(x = mean_biomass, y = Biome, fill = Grupo)) +
+  geom_col(position = "stack") +
+  geom_errorbar(
+    aes(xmin = mean_biomass - se_biomass, xmax = mean_biomass + se_biomass),
+    position = position_stack(vjust = 0.5), width = 0.2
+  ) +
+  scale_fill_viridis_d(option = "viridis", direction = -1) +
+  labs(
+    title = "(c) Avg. biomass/event",
+    x = "Biomass (kg)",
+    y = NULL,
+    fill = "Group",
+      ) +
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 120), breaks = seq(0, 120, by = 40)) +
+  theme(
+    legend.position = c(0.92, 0.2),
+    legend.background = element_rect(fill = "white", color = "gray80")
+  )
+
+g_c
+
+# ----- GRÁFICO (d): Número de espécies identificadas com barras de erro -----
+g_d_data <- data_clean %>%
+  filter(Espécie != "NULL") %>%
+  group_by(Biome, Grupo) %>%
+  summarise(
+    n_species = n_distinct(Espécie),
+    se_species = sd(n_distinct(Espécie), na.rm = TRUE) / sqrt(n())
+  )
+
+g_d <- ggplot(g_d_data, aes(x = n_species, y = Biome, fill = Grupo)) +
+  geom_col(position = "stack") +
+  geom_errorbar(
+    aes(xmin = n_species - se_species, xmax = n_species + se_species),
+    position = position_stack(vjust = 0.5), width = 0.2
+  ) +
+  scale_fill_viridis_d(option = "viridis", direction = -1) +
+  labs(
+    title = "(d) Species identified",
+    x = "Species",
+    y = NULL, fill = "Group",
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 25), breaks = seq(0, 25, by = 5)) +
+  theme(
+    legend.position = c(0.75, 0.5),
+    legend.background = element_rect(fill = "white", color = "gray80")
+  )
+
+g_d
+
+# ----- GRÁFICO (e): % de espécies ameaçadas com barras de erro -----
+threatened <- c("VU", "EN", "CR")
+g_e_data <- data_clean %>%
+  filter(Espécie != "NULL") %>%
+  group_by(Biome, Grupo) %>%
+  summarise(
+    total = n_distinct(Espécie),
+    threatened = sum(IUCN %in% threatened, na.rm = TRUE),
+    perc = 100 * threatened / total,
+    se_threat = sd(100 * (IUCN %in% threatened) / sqrt(n()), na.rm = TRUE)
+  )
+
+g_e <- ggplot(g_e_data, aes(x = perc, y = Biome, fill = Grupo)) +
+  geom_col(position = "stack") +
+  geom_errorbar(
+    aes(xmin = perc - se_threat, xmax = perc + se_threat),
+    position = position_stack(vjust = 0.5), width = 0.2
+  ) +
+  scale_fill_viridis_d(option = "viridis", direction = -1) +
+  labs(
+    title = "(e) % Threatened species",
+    x = "% Threatened",
+    y = NULL, fill = "Group",
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 40), breaks = seq(0, 40, by = 20)) +
+  theme(
+    legend.position = c(0.75, 0.4),
+    legend.background = element_rect(fill = "white", color = "gray80")
+  )
+
+g_e
+
+# ----- Combinar todos os gráficos -----
+# Adicionar uma única legenda compartilhada
+
+
+# Define layout
+layout <- "
+AABB
+CCDD
+EEEE
+"
+
+plot_final <- g_a + g_b_scaled + g_c + g_d + g_e +
+  plot_layout(design = layout, guides = "collect") &
+  theme(legend.position = "bottom")
+
+# Display
+plot_final
+
+# PDF (vector format, best for publications)
+ggsave("./outputs/wildlife_analysis.pdf", 
+       plot = final_plot,
+       device = "pdf",
+       width = 12, 
+       height = 10,
+       units = "in",
+       dpi = 600)
+
+# PNG (high-res raster)
+ggsave("./outputs/wildlife_analysis.png", 
+       plot = final_plot,
+       device = "png",
+       width = 12,
+       height = 10,
+       units = "in",
+       dpi = 600,
+       bg = "white")
+
+# JPEG (high quality)
+ggsave("./outputs/wildlife_analysis.jpg", 
+       plot = final_plot,
+       device = "jpeg",
+       width = 12,
+       height = 10,
+       units = "in",
+       dpi = 600,
+       quality = 100)
+
+# 3. For TIFF (if needed for journals)
+ggsave("./outputs/wildlife_analysis.tiff",
+       plot = final_plot,
+       device = "tiff",
+       width = 12,
+       height = 10,
+       units = "in",
+       dpi = 600,
+       compression = "lzw")
+
+
+## Fim do script | end of script | c'est fini |
