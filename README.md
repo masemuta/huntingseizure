@@ -20,9 +20,10 @@ All the results are saved in the `outputs` folder.
 
 Figure 1: **Top 20 seized species (a) and taxonomic group (b) by PRF in Brazil**.
 
-<img alt="Current_and_projected_connectivity" src="outputs/Figure_4_tif.tif" width="1000">
+<img alt="Figure_3.pdf" src="outputs/Figure_3.pdf" width="1000">
 
-Figure 2: **Current and projected connectivity**.
+Figure 2: **Patterns of defaunation according to PRF seizures**.
+
 ## License
 
 Data and R script are available under the GNU General Public License version 3 (see `LICENSE` file).
