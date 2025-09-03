@@ -16,9 +16,9 @@ Data can be found in the `data` folder. The `araucaria_dataset` folder includes 
 
 All the results are saved in the `outputs` folder.
 
-<img alt="Current_distribution_and_projected_distribution" src="outputs/Fig1.tif.tif" width="1000">
+<img alt="Top_20_seized_species_by_PRF_in_Brazil" src="outputs/Figure_2.pdf width="1000">
 
-Figure 1: **Current distribution and projected distribution**.
+Figure 1: **Top 20 seized species by PRF in Brazil**.
 
 <img alt="Current_and_projected_connectivity" src="outputs/Figure_4_tif.tif" width="1000">
 
