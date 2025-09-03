@@ -16,7 +16,7 @@ Data can be found in the `data` folder. The `araucaria_dataset` folder includes 
 
 All the results are saved in the `outputs` folder.
 
-<img alt="Figure_2" src="outputs/Figure_2.pdf" width="1000">
+<img alt="Figure_2" src="outputs/Figure_2" width="500">
 
 Figure 1: **Top 20 seized species (a) and taxonomic group (b) by PRF in Brazil**.
 
