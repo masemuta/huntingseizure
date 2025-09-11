@@ -2,15 +2,15 @@
 
 # 
 
-The R script `R/araucaria_2020.R` can be run to reproduce the results of the following study:
+The R script `R/script_caça.R` can be run to reproduce the results of the following study:
 
 **
 
-To run the script, you can either execute the `araucaria_2020.sh` shellscript file or run the R script under a R GUI such as RStudio.
+To run the script, you can either execute the `script_caça.sh` shellscript file or run the R script under a R GUI such as RStudio.
 
 ## Data
 
-Data can be found in the `data` folder. The `araucaria_dataset` folder includes the `.csv` file with raw occurrence data for araucaria species that can be found inside the Mixed Ombrophilous Forest.
+Data can be found in the `data` folder. The `planilha_completa` folder includes the `.csv` file with filtered data ready for statistical analyses and figure and table created in the present study.
 
 ## Results
 
